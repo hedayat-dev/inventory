@@ -1,0 +1,1 @@
+<?php echo "Stockpilot folder is accessible!"; ?>
