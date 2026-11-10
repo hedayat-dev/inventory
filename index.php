@@ -66,6 +66,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	$modelId = filter_input(INPUT_POST, 'model_id', FILTER_VALIDATE_INT) ?: null;
 	$price1 = trim($_POST['price_1'] ?? '');
 	$price2 = trim($_POST['price_2'] ?? '');
+	$hsn = trim($_POST['hsn'] ?? '');
+	$gst = trim($_POST['gst'] ?? '');
 	$quantity = filter_input(INPUT_POST, 'quantity', FILTER_VALIDATE_INT);
 	$warehouseId = filter_input(INPUT_POST, 'warehouse_id', FILTER_VALIDATE_INT);
 	$location = trim($_POST['location'] ?? '');
@@ -77,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		$skuExists = (bool) mysqli_fetch_assoc(mysqli_stmt_get_result($skuCheck))['sku_exists'];
 	}
 
-	if ($sku === '' || strlen($sku) > 100 || preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/', $sku) !== 1 || $skuExists || $title === '' || $categoryId === false || $categoryId < 1 || $brandId === false || $brandId < 1 || $quantity === false || $quantity < 0 || $warehouseId === false || $warehouseId < 1 || $location === '') {
+	if ($sku === '' || strlen($sku) > 100 || preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/', $sku) !== 1 || $skuExists || $title === '' || $categoryId === false || $categoryId < 1 || $brandId === false || $brandId < 1 || $quantity === false || $quantity < 0 || $warehouseId === false || $warehouseId < 1 || $location === '' || strlen($hsn) > 50 || ($gst !== '' && (!ctype_digit($gst) || (int) $gst > 100))) {
 		$message = $skuExists ? 'That SKU is already assigned to another product.' : 'Please complete the required fields with valid values.';
 		$messageType = 'error';
 	} else {
@@ -89,9 +91,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		try {
 			$productStatement = mysqli_prepare(
 				$connection,
-				'INSERT INTO vp_products (sku, title, brand, category, price_1, price_2, category_id, subcategory_id, brand_id, model_id) VALUES (?, ?, ?, ?, NULLIF(?, \'\'), NULLIF(?, \'\'), ?, ?, ?, ?)'
+				'INSERT INTO vp_products (sku, title, brand, category, price_1, price_2, hsn, gst, category_id, subcategory_id, brand_id, model_id) VALUES (?, ?, ?, ?, NULLIF(?, \'\'), NULLIF(?, \'\'), NULLIF(?, \'\'), NULLIF(?, \'\'), ?, ?, ?, ?)'
 			);
-			mysqli_stmt_bind_param($productStatement, 'ssssssiiii', $sku, $title, $brand, $category, $price1, $price2, $categoryId, $subcategoryId, $brandId, $modelId);
+			mysqli_stmt_bind_param($productStatement, 'ssssssssiiii', $sku, $title, $brand, $category, $price1, $price2, $hsn, $gst, $categoryId, $subcategoryId, $brandId, $modelId);
 			mysqli_stmt_execute($productStatement);
 
 			$stockStatement = mysqli_prepare(
@@ -244,6 +246,8 @@ require __DIR__ . '/header.php';
 										<div class="stock-actions">
 											<button type="button" class="stock-menu-toggle" aria-label="Stock item options" aria-haspopup="menu" aria-expanded="false"><i class="fas fa-ellipsis-v" aria-hidden="true"></i></button>
 											<div class="stock-menu" role="menu" hidden>
+												<a class="stock-menu-item" role="menuitem" href="stockin.php?sku=<?= urlencode($stock['sku']) ?>&amp;warehouse_id=<?= (int) $stock['warehouse_id'] ?>">Stock in</a>
+												<a class="stock-menu-item" role="menuitem" href="stockout.php?sku=<?= urlencode($stock['sku']) ?>&amp;warehouse_id=<?= (int) $stock['warehouse_id'] ?>">Stock out</a>
 												<button type="button" class="stock-menu-item view-details" role="menuitem" data-stock-id="<?= (int) $stock['id'] ?>">View details</button>
 												<button type="button" class="stock-menu-item edit-product" role="menuitem" data-stock-id="<?= (int) $stock['id'] ?>">Edit</button>
 											</div>
@@ -369,6 +373,10 @@ require __DIR__ . '/header.php';
 					<div class="field-row">
 						<div class="field"><label for="price_1">Price 1</label><input id="price_1" name="price_1" type="number" min="0" step="0.01" value="<?= output($_POST['price_1'] ?? '') ?>"></div>
 						<div class="field"><label for="price_2">Price 2</label><input id="price_2" name="price_2" type="number" min="0" step="0.01" value="<?= output($_POST['price_2'] ?? '') ?>"></div>
+					</div>
+					<div class="field-row">
+						<div class="field"><label for="hsn">HSN code</label><input id="hsn" name="hsn" maxlength="50" value="<?= output($_POST['hsn'] ?? '') ?>"></div>
+						<div class="field"><label for="gst">GST (%)</label><input id="gst" name="gst" type="number" min="0" max="100" step="1" value="<?= output($_POST['gst'] ?? '') ?>"></div>
 					</div>
 					<button type="submit">Add to stock</button>
 					</form>
@@ -745,8 +753,12 @@ require __DIR__ . '/header.php';
 				+ '<form id="edit-product-form">'
 				+ '<input type="hidden" name="action" value="update_product">'
 				+ '<input type="hidden" name="stock_id" value="' + product.id + '">'
+				+ '<input type="hidden" name="csrf_token" value="<?= output(auth_csrf_token()) ?>">'
 				+ '<div class="field"><label for="edit-title">Product name</label><input id="edit-title" name="title" maxlength="255" required value="' + escapeModalHtml(product.title || '') + '"></div>'
+				+ '<div class="field-row">'
 				+ '<div class="field"><label for="edit-sku">SKU</label><input id="edit-sku" name="sku" maxlength="100" required value="' + escapeModalHtml(product.sku || '') + '"></div>'
+				+ '<div class="field"><label for="edit-storage-location">Storage location</label><input id="edit-storage-location" name="storage_location" maxlength="255" required value="' + escapeModalHtml(product.storage_location || '') + '"></div>'
+				+ '</div>'
 				+ '<div class="field-row">'
 				+ '<div class="field"><label for="edit-brand">Brand</label><select id="edit-brand" name="brand_id" required></select></div>'
 				+ '<div class="field"><label for="edit-model">Model</label><select id="edit-model" name="model_id"><option value="">Select model</option></select></div>'
@@ -758,6 +770,10 @@ require __DIR__ . '/header.php';
 				+ '<div class="field-row">'
 				+ '<div class="field"><label for="edit-price-1">Price 1</label><input id="edit-price-1" name="price_1" type="number" min="0" step="0.01" value="' + (product.price_1 ?? '') + '"></div>'
 				+ '<div class="field"><label for="edit-price-2">Price 2</label><input id="edit-price-2" name="price_2" type="number" min="0" step="0.01" value="' + (product.price_2 ?? '') + '"></div>'
+				+ '</div>'
+				+ '<div class="field-row">'
+				+ '<div class="field"><label for="edit-hsn">HSN code</label><input id="edit-hsn" name="hsn" maxlength="50" value="' + escapeModalHtml(product.hsn || '') + '"></div>'
+				+ '<div class="field"><label for="edit-gst">GST (%)</label><input id="edit-gst" name="gst" type="number" min="0" max="100" step="1" value="' + (product.gst ?? '') + '"></div>'
 				+ '</div>'
 				+ '<div class="edit-form-message" id="edit-product-message" role="status" aria-live="polite"></div>'
 				+ '<div class="edit-form-actions"><button type="button" class="edit-cancel">Cancel</button><button type="submit">Save changes</button></div>'

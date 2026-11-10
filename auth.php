@@ -37,7 +37,7 @@ function auth_is_logged_in(): bool
 
 function auth_safe_next(string $target): string
 {
-	$allowedPages = ['index.php', 'stockin.php', 'stockout.php', 'stock_movement.php', 'masters.php'];
+	$allowedPages = ['index.php', 'stockin.php', 'stockout.php', 'direct_purchase.php', 'sales.php', 'stock_movement.php', 'masters.php'];
 	$parts = parse_url($target);
 	if ($parts === false || isset($parts['scheme']) || isset($parts['host']) || isset($parts['user']) || isset($parts['pass'])) {
 		return 'index.php';

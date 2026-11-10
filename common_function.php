@@ -79,6 +79,7 @@ class ProductSearch
 			'SELECT s.id, s.sku, s.brand, s.warehouse_id, s.current_stock, s.last_trans_id, s.updated_at,
 			        p.id AS product_id, p.category_id, p.subcategory_id, p.brand_id, p.model_id,
 			        p.title, p.description, p.category, p.hsn, p.gst, p.snippet_description, p.price_1, p.price_2,
+			        (SELECT sm.location FROM vp_stock_movements sm WHERE sm.vp_stock_id = s.id ORDER BY sm.id DESC LIMIT 1) AS storage_location,
 			        m.name AS model, sc.name AS subcategory
 			 FROM vp_stock s
 			 LEFT JOIN vp_products p ON p.sku = s.sku
@@ -133,6 +134,12 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
 	require_login(true);
 	header('Content-Type: application/json');
 
+	if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_product' && !auth_verify_csrf($_POST['csrf_token'] ?? null)) {
+		http_response_code(403);
+		echo json_encode(['success' => false, 'message' => 'Your session expired. Refresh the page and try again.']);
+		exit;
+	}
+
 	$response = ['success' => true, 'rows' => []];
 
 	try {
@@ -151,9 +158,12 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
 			$modelId = $modelInput === '' ? null : filter_var($modelInput, FILTER_VALIDATE_INT);
 			$price1 = trim($_POST['price_1'] ?? '');
 			$price2 = trim($_POST['price_2'] ?? '');
+			$hsn = trim($_POST['hsn'] ?? '');
+			$gst = trim($_POST['gst'] ?? '');
+			$storageLocation = trim($_POST['storage_location'] ?? '');
 			$validPrice = static fn(string $price): bool => $price === '' || (is_numeric($price) && (float) $price >= 0);
 
-			if ($stockId === false || $stockId < 1 || $sku === '' || strlen($sku) > 100 || $title === '' || strlen($title) > 255 || $categoryId === false || $categoryId < 1 || $brandId === false || $brandId < 1 || $subcategoryId === false || $modelId === false || !$validPrice($price1) || !$validPrice($price2)) {
+			if ($stockId === false || $stockId < 1 || $sku === '' || strlen($sku) > 100 || $title === '' || strlen($title) > 255 || $categoryId === false || $categoryId < 1 || $brandId === false || $brandId < 1 || $subcategoryId === false || $modelId === false || !$validPrice($price1) || !$validPrice($price2) || strlen($hsn) > 50 || ($gst !== '' && (!ctype_digit($gst) || (int) $gst > 100)) || $storageLocation === '' || strlen($storageLocation) > 255) {
 				http_response_code(400);
 				$response = ['success' => false, 'message' => 'Please complete the required fields with valid values.'];
 			} else {
@@ -214,15 +224,27 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
 						try {
 							$productStatement = mysqli_prepare(
 								$connection,
-								'UPDATE vp_products SET sku = ?, title = ?, brand = ?, category = ?, price_1 = NULLIF(?, \'\'), price_2 = NULLIF(?, \'\'), category_id = ?, subcategory_id = ?, brand_id = ?, model_id = ? WHERE id = ?'
+								'UPDATE vp_products SET sku = ?, title = ?, brand = ?, category = ?, price_1 = NULLIF(?, \'\'), price_2 = NULLIF(?, \'\'), hsn = NULLIF(?, \'\'), gst = NULLIF(?, \'\'), category_id = ?, subcategory_id = ?, brand_id = ?, model_id = ? WHERE id = ?'
 							);
-							mysqli_stmt_bind_param($productStatement, 'ssssssiiiii', $sku, $title, $brand, $category, $price1, $price2, $categoryId, $subcategoryId, $brandId, $modelId, $productId);
+							mysqli_stmt_bind_param($productStatement, 'ssssssssiiiii', $sku, $title, $brand, $category, $price1, $price2, $hsn, $gst, $categoryId, $subcategoryId, $brandId, $modelId, $productId);
 							mysqli_stmt_execute($productStatement);
 
 							$oldSku = $details['sku'];
 							$stockStatement = mysqli_prepare($connection, 'UPDATE vp_stock SET sku = ?, brand = ? WHERE sku = ?');
 							mysqli_stmt_bind_param($stockStatement, 'sss', $sku, $brand, $oldSku);
 							mysqli_stmt_execute($stockStatement);
+
+							$locationStatement = mysqli_prepare($connection, 'SELECT id FROM vp_stock_movements WHERE vp_stock_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE');
+							mysqli_stmt_bind_param($locationStatement, 'i', $stockId);
+							mysqli_stmt_execute($locationStatement);
+							$locationRow = mysqli_fetch_assoc(mysqli_stmt_get_result($locationStatement));
+							if (!$locationRow) {
+								throw new RuntimeException('Storage location could not be updated because no stock movement exists.');
+							}
+							$movementId = (int) $locationRow['id'];
+							$updateLocationStatement = mysqli_prepare($connection, 'UPDATE vp_stock_movements SET location = ? WHERE id = ?');
+							mysqli_stmt_bind_param($updateLocationStatement, 'si', $storageLocation, $movementId);
+							mysqli_stmt_execute($updateLocationStatement);
 
 							mysqli_commit($connection);
 							$response = ['success' => true, 'product' => $search->getDetails($stockId)];

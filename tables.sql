@@ -35,6 +35,10 @@ CREATE TABLE `vp_stock_movements` (
   `ref_type` varchar(100) DEFAULT NULL,
   `ref_id` varchar(255) DEFAULT NULL,
   `reason` text DEFAULT NULL,
+  `expiry_date` date DEFAULT NULL,
+  `batch_no` varchar(100) DEFAULT NULL,
+  `cost_price` decimal(10,2) DEFAULT NULL,
+  `sale_price` decimal(10,2) DEFAULT NULL,
   `update_by_user` int(11) DEFAULT NULL,
   `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `created_at` datetime NOT NULL DEFAULT current_timestamp()

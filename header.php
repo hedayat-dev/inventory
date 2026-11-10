@@ -66,6 +66,8 @@ if (!function_exists('output')) {
 					<li><a href="index.php?add_product=1">Add product</a></li>
 					<li><a href="stockin.php">Stock In</a></li>
 					<li><a href="stockout.php">Stock Out</a></li>
+					<li><a href="direct_purchase.php">Direct Purchase</a></li>
+					<li><a href="sales.php">Sales</a></li>
                     <li><a href="stock_movement.php">View stock movement/history</a></li>
 					<!-- <li><a href="stockout.php#history">View stock movement/history</a></li> -->
 					<!-- <li><a href="profile.php">Profile/settings</a></li> -->

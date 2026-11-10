@@ -6,6 +6,10 @@ require_login();
 $connection = Database::getConnection();
 $message = '';
 $messageType = '';
+$expiryDateInput = '';
+$batchNoInput = '';
+$costPriceInput = '';
+$reasonInput = '';
 
 function output(string $value): string
 {
@@ -53,10 +57,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	$sku = trim($_POST['sku'] ?? '');
 	$warehouseId = filter_input(INPUT_POST, 'warehouse_id', FILTER_VALIDATE_INT);
 	$quantity = filter_input(INPUT_POST, 'quantity', FILTER_VALIDATE_INT);
-	$reason = trim($_POST['reason'] ?? '');
+	$expiryDateInput = trim($_POST['expiry_date'] ?? '');
+	$batchNoInput = trim($_POST['batch_no'] ?? '');
+	$costPriceInput = trim($_POST['cost_price'] ?? '');
+	$reasonInput = trim($_POST['reason'] ?? '');
+	$expiryDate = $expiryDateInput === '' ? null : $expiryDateInput;
+	$batchNo = $batchNoInput === '' ? null : $batchNoInput;
+	$costPrice = $costPriceInput === '' ? null : $costPriceInput;
+	$parsedExpiryDate = $expiryDateInput === '' ? false : DateTimeImmutable::createFromFormat('!Y-m-d', $expiryDateInput);
+	$validExpiryDate = $expiryDateInput === '' || ($parsedExpiryDate !== false && $parsedExpiryDate->format('Y-m-d') === $expiryDateInput);
+	$validBatchNo = strlen($batchNoInput) <= 100;
+	$validCostPrice = $costPriceInput === '' || preg_match('/^\d{1,8}(?:\.\d{1,2})?$/', $costPriceInput) === 1;
 
 	if ($sku === '' || $warehouseId === false || $warehouseId < 1 || $quantity === false || $quantity < 1) {
 		$message = 'Please choose a product and enter a valid quantity to stock in.';
+		$messageType = 'error';
+	} elseif (!$validExpiryDate || !$validBatchNo || !$validCostPrice) {
+		$message = 'Enter a valid expiry date, batch number (up to 100 characters), and cost price (up to 8 digits and 2 decimals).';
 		$messageType = 'error';
 	} else {
 		mysqli_begin_transaction($connection);
@@ -89,9 +106,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 			$movementStatement = mysqli_prepare(
 				$connection,
-				'INSERT INTO vp_stock_movements (vp_stock_id, sku, brand, warehouse_id, location, movement_type, quantity, running_stock, reason) VALUES (?, ?, ?, ?, ?, \'IN\', ?, ?, ?)'
+				'INSERT INTO vp_stock_movements (vp_stock_id, sku, brand, warehouse_id, location, movement_type, quantity, running_stock, reason, expiry_date, batch_no, cost_price) VALUES (?, ?, ?, ?, ?, \'IN\', ?, ?, ?, ?, ?, ?)'
 			);
-			mysqli_stmt_bind_param($movementStatement, 'issisiis', $stockId, $sku, $brand, $warehouseId, $location, $quantity, $newStock, $reason);
+			mysqli_stmt_bind_param($movementStatement, 'issisiissss', $stockId, $sku, $brand, $warehouseId, $location, $quantity, $newStock, $reasonInput, $expiryDate, $batchNo, $costPrice);
 			mysqli_stmt_execute($movementStatement);
 			$movementId = mysqli_insert_id($connection);
 
@@ -314,7 +331,10 @@ require __DIR__ . '/header.php';
 						<input type="hidden" name="warehouse_id" value="<?= (int) $selectedProduct['warehouse_id'] ?>">
 						<div class="field-row">
 							<div class="field"><label for="quantity">Quantity to add</label><input id="quantity" name="quantity" type="number" min="1" required></div>
-							<div class="field"><label for="reason">Reason</label><input id="reason" name="reason" maxlength="255" placeholder="e.g. Purchase, return, restock"></div>
+							<div class="field"><label for="expiry_date">Expiry date</label><input id="expiry_date" name="expiry_date" type="date" value="<?= output($expiryDateInput) ?>"></div>
+							<div class="field"><label for="batch_no">Batch number</label><input id="batch_no" name="batch_no" maxlength="100" value="<?= output($batchNoInput) ?>"></div>
+							<div class="field"><label for="cost_price">Cost price</label><input id="cost_price" name="cost_price" type="number" min="0" max="99999999.99" step="0.01" value="<?= output($costPriceInput) ?>"></div>
+							<div class="field"><label for="reason">Reason</label><input id="reason" name="reason" maxlength="255" placeholder="e.g. Purchase, return, restock" value="<?= output($reasonInput) ?>"></div>
 						</div>
 						<button class="submit" type="submit">Stock in</button>
 					</form>
@@ -329,7 +349,7 @@ require __DIR__ . '/header.php';
 					<div class="empty">No stock movements recorded yet for this product.</div>
 				<?php else: ?>
 					<table>
-						<thead><tr><th>Date</th><th>Type</th><th>Warehouse</th><th>Quantity</th><th>Running stock</th><th>Location</th><th>Reason</th></tr></thead>
+						<thead><tr><th>Date</th><th>Type</th><th>Warehouse</th><th>Quantity</th><th>Running stock</th><th>Batch no.</th><th>Expiry date</th><th>Cost price</th><th>Location</th><th>Reason</th></tr></thead>
 						<tbody>
 							<?php foreach ($historyRows as $movement): ?>
 								<tr>
@@ -338,6 +358,9 @@ require __DIR__ . '/header.php';
 									<td><span class="warehouse">WH-<?= (int) $movement['warehouse_id'] ?></span></td>
 									<td><?= (int) $movement['quantity'] ?></td>
 									<td><?= (int) $movement['running_stock'] ?></td>
+									<td><?= output($movement['batch_no'] ?? '-') ?></td>
+									<td><?= output($movement['expiry_date'] ?? '-') ?></td>
+									<td><?= $movement['cost_price'] !== null ? '₹' . number_format((float) $movement['cost_price'], 2) : '-' ?></td>
 									<td><?= output($movement['location'] ?? '-') ?></td>
 									<td><?= output($movement['reason'] ?? '-') ?></td>
 								</tr>
